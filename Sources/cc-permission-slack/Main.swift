@@ -11,7 +11,8 @@ struct CCPermissionSlack {
             // 2. stdin から PermissionRequest を読み取り
             Logger.info("Reading permission request from stdin...")
             let request = try readPermissionRequest()
-            Logger.info("Received permission request for tool: \(request.toolName)")
+            Logger.info("Received permission request for tool: \(request.toolName), tool_use_id: \(request.toolUseId)")
+            Logger.debug("Full request: toolName=\(request.toolName), toolUseId=\(request.toolUseId), toolInput=\(request.toolInput.formattedString(maxLength: 200))")
 
             // 3. Socket Mode 接続
             let socketConnection = SocketModeConnection(appToken: config.slackAppToken)
@@ -40,13 +41,11 @@ struct CCPermissionSlack {
                 MessageBuilder.denyActionId
             ]
 
-            let (action, userId, envelopeId) = try await socketConnection.waitForBlockAction(
+            let (action, userId, _) = try await socketConnection.waitForBlockAction(
                 expectedActionIds: expectedActions,
-                expectedValue: request.toolUseId
+                expectedMessageTs: messageTs
             )
-
-            // 6. Acknowledge を送信
-            try await socketConnection.acknowledge(envelopeId: envelopeId)
+            // Note: acknowledge は waitForBlockAction 内で送信済み
 
             // 7. 決定を判定
             let approved = action.actionId == MessageBuilder.approveActionId

@@ -106,8 +106,8 @@ actor SocketModeConnection {
     }
 
     /// block_actions イベントを待機
-    /// 指定した actionId かつ expectedValue (tool_use_id) に一致するものを待機
-    func waitForBlockAction(expectedActionIds: Set<String>, expectedValue: String) async throws -> (action: SlackAction, userId: String, envelopeId: String) {
+    /// 指定した actionId かつ送信したメッセージのts に一致するものを待機
+    func waitForBlockAction(expectedActionIds: Set<String>, expectedMessageTs: String) async throws -> (action: SlackAction, userId: String, envelopeId: String) {
         guard let task = webSocketTask else {
             throw CCPermissionError.webSocketDisconnected
         }
@@ -145,19 +145,27 @@ actor SocketModeConnection {
                payload.type == "block_actions",
                let actions = payload.actions {
 
+                let messageTs = payload.message?.ts
+                Logger.debug("Checking action: actionId=\(actions.first?.actionId ?? "nil"), messageTs=\(messageTs ?? "nil"), expected=\(expectedMessageTs)")
+
+                // メッセージtsが一致するか確認（自分が送ったメッセージかどうか）
+                guard messageTs == expectedMessageTs else {
+                    Logger.debug("Ignoring action for different message: ts=\(messageTs ?? "nil") (expected: \(expectedMessageTs))")
+                    continue
+                }
+
                 for action in actions {
-                    // action_id と value (tool_use_id) の両方が一致するか確認
-                    if expectedActionIds.contains(action.actionId) && action.value == expectedValue {
+                    if expectedActionIds.contains(action.actionId) {
+                        // 自分のリクエストに対するボタン押下のみ処理
                         let userId = payload.user?.id ?? "unknown"
                         guard let envelopeId = envelope.envelopeId else {
                             Logger.error("Missing envelope_id in block_actions")
                             continue
                         }
-                        Logger.info("Received action: \(action.actionId) from user: \(userId) for tool_use_id: \(expectedValue)")
+                        // 自分のものだけacknowledge
+                        try await acknowledge(envelopeId: envelopeId)
+                        Logger.info("Received action: \(action.actionId) from user: \(userId) for message: \(expectedMessageTs)")
                         return (action, userId, envelopeId)
-                    } else if expectedActionIds.contains(action.actionId) {
-                        // action_idは一致するがvalueが異なる場合（別のリクエストのボタン）
-                        Logger.debug("Ignoring action with different value: \(action.value ?? "nil") (expected: \(expectedValue))")
                     }
                 }
             }
