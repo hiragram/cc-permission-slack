@@ -41,7 +41,8 @@ struct CCPermissionSlack {
             ]
 
             let (action, userId, envelopeId) = try await socketConnection.waitForBlockAction(
-                expectedActionIds: expectedActions
+                expectedActionIds: expectedActions,
+                expectedValue: request.toolUseId
             )
 
             // 6. Acknowledge を送信

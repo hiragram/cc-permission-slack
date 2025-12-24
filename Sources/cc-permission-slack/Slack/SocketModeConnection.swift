@@ -106,8 +106,8 @@ actor SocketModeConnection {
     }
 
     /// block_actions イベントを待機
-    /// 指定した actionId のいずれかがクリックされるまで待機
-    func waitForBlockAction(expectedActionIds: Set<String>) async throws -> (action: SlackAction, userId: String, envelopeId: String) {
+    /// 指定した actionId かつ expectedValue (tool_use_id) に一致するものを待機
+    func waitForBlockAction(expectedActionIds: Set<String>, expectedValue: String) async throws -> (action: SlackAction, userId: String, envelopeId: String) {
         guard let task = webSocketTask else {
             throw CCPermissionError.webSocketDisconnected
         }
@@ -146,14 +146,18 @@ actor SocketModeConnection {
                let actions = payload.actions {
 
                 for action in actions {
-                    if expectedActionIds.contains(action.actionId) {
+                    // action_id と value (tool_use_id) の両方が一致するか確認
+                    if expectedActionIds.contains(action.actionId) && action.value == expectedValue {
                         let userId = payload.user?.id ?? "unknown"
                         guard let envelopeId = envelope.envelopeId else {
                             Logger.error("Missing envelope_id in block_actions")
                             continue
                         }
-                        Logger.info("Received action: \(action.actionId) from user: \(userId)")
+                        Logger.info("Received action: \(action.actionId) from user: \(userId) for tool_use_id: \(expectedValue)")
                         return (action, userId, envelopeId)
+                    } else if expectedActionIds.contains(action.actionId) {
+                        // action_idは一致するがvalueが異なる場合（別のリクエストのボタン）
+                        Logger.debug("Ignoring action with different value: \(action.value ?? "nil") (expected: \(expectedValue))")
                     }
                 }
             }
