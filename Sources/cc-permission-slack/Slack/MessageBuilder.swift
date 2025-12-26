@@ -11,6 +11,9 @@ enum MessageBuilder {
     /// AskUserQuestion選択肢ボタンの action_id プレフィックス
     static let questionOptionActionIdPrefix = "question_option_"
 
+    /// AskUserQuestion確定ボタンの action_id プレフィックス
+    static let questionSubmitActionIdPrefix = "question_submit_"
+
     /// 許可リクエストメッセージを構築
     static func buildPermissionBlocks(request: PermissionRequest) -> [Block] {
         var blocks: [Block] = []
@@ -166,6 +169,18 @@ enum MessageBuilder {
         return (qIndex, oIndex)
     }
 
+    /// multiSelect確定ボタン用のactionIdを生成
+    static func questionSubmitActionId(questionIndex: Int) -> String {
+        "\(questionSubmitActionIdPrefix)\(questionIndex)"
+    }
+
+    /// actionIdから確定ボタンの質問インデックスを抽出
+    static func parseQuestionSubmitActionId(_ actionId: String) -> Int? {
+        guard actionId.hasPrefix(questionSubmitActionIdPrefix) else { return nil }
+        let suffix = String(actionId.dropFirst(questionSubmitActionIdPrefix.count))
+        return Int(suffix)
+    }
+
     // MARK: - スレッド形式 AskUserQuestion
 
     /// AskUserQuestionの親メッセージ（ヘッダー）を構築
@@ -182,12 +197,14 @@ enum MessageBuilder {
     ///   - question: 質問
     ///   - questionIndex: 質問のインデックス
     ///   - requestId: リクエストID（ボタンのblockIdに使用）
-    ///   - answer: 回答済みの場合はその回答
+    ///   - answer: 回答済みの場合はその回答（単一選択の場合）
+    ///   - selectedIndices: multiSelectで現在選択中のオプションインデックス
     static func buildAskUserQuestionQuestionBlocks(
         question: AskUserQuestionQuestion,
         questionIndex: Int,
         requestId: String,
-        answer: String? = nil
+        answer: String? = nil,
+        selectedIndices: Set<Int>? = nil
     ) -> [Block] {
         var blocks: [Block] = []
         let questionNumber = questionIndex + 1
@@ -197,8 +214,52 @@ enum MessageBuilder {
             blocks.append(.section(SectionBlock(
                 text: .mrkdwn("*Q\(questionNumber). \(question.header)*\n\(question.question)\n\n:white_check_mark: *\(answer)*")
             )))
+        } else if question.multiSelect {
+            // multiSelect: 選択中の状態を表示
+            let selected = selectedIndices ?? []
+            var questionText = "*Q\(questionNumber). \(question.header)* _(複数選択可)_\n\(question.question)"
+
+            // 選択中のオプションを表示
+            if !selected.isEmpty {
+                let selectedLabels = selected.sorted().compactMap { index -> String? in
+                    guard index < question.options.count else { return nil }
+                    return question.options[index].label
+                }
+                questionText += "\n\n:ballot_box_with_check: 選択中: *\(selectedLabels.joined(separator: ", "))*"
+            }
+
+            blocks.append(.section(SectionBlock(
+                text: .mrkdwn(questionText)
+            )))
+
+            // 選択肢ボタン（選択済みはチェックマーク付き）
+            var elements: [ButtonElement] = []
+            for (optionIndex, option) in question.options.enumerated() {
+                let actionId = questionOptionActionId(questionIndex: questionIndex, optionIndex: optionIndex)
+                let isSelected = selected.contains(optionIndex)
+                let buttonText = isSelected ? "✓ \(option.label)" : option.label
+                elements.append(ButtonElement(
+                    text: buttonText,
+                    actionId: actionId,
+                    value: option.label
+                ))
+            }
+
+            blocks.append(.actions(ActionsBlock(
+                blockId: "question_actions_\(requestId)_\(questionIndex)",
+                elements: elements
+            )))
+
+            // 確定ボタン（選択がある場合のみ有効にしたいが、Slackではdisabledが難しいので常に表示）
+            let submitActionId = questionSubmitActionId(questionIndex: questionIndex)
+            blocks.append(.actions(ActionsBlock(
+                blockId: "question_submit_\(requestId)_\(questionIndex)",
+                elements: [
+                    .primary(text: "確定", actionId: submitActionId, value: "submit")
+                ]
+            )))
         } else {
-            // 未回答（ボタン表示）
+            // 単一選択（ボタン表示）
             blocks.append(.section(SectionBlock(
                 text: .mrkdwn("*Q\(questionNumber). \(question.header)*\n\(question.question)")
             )))
