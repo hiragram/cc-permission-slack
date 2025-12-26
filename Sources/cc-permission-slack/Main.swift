@@ -128,86 +128,127 @@ struct CCPermissionSlack {
         slackClient: SlackClient,
         socketConnection: SocketModeConnection
     ) async throws -> PermissionResponse {
-        Logger.info("Handling AskUserQuestion with \(questions.count) question(s)")
+        Logger.info("Handling AskUserQuestion with \(questions.count) question(s) using thread format")
 
+        let requestId = request.sessionId ?? UUID().uuidString
         var answers: [Int: String] = [:]
         var lastUserId: String = "unknown"
 
-        // 最初のメッセージを送信（質問0から開始）
-        let initialBlocks = MessageBuilder.buildAskUserQuestionBlocks(
-            request: request,
-            questions: questions,
-            currentQuestionIndex: 0,
-            answers: answers
-        )
-        let fallbackText = MessageBuilder.buildAskUserQuestionFallbackText(questions: questions)
+        // 1. 親メッセージ（ヘッダー）を投稿
+        let headerBlocks = MessageBuilder.buildAskUserQuestionHeaderBlocks(questionCount: questions.count)
+        let headerFallbackText = MessageBuilder.buildAskUserQuestionFallbackText(questions: questions)
 
-        let messageTs = try await slackClient.postMessage(
+        let parentTs = try await slackClient.postMessage(
             channel: config.slackChannelId,
-            blocks: initialBlocks,
-            text: fallbackText
+            blocks: headerBlocks,
+            text: headerFallbackText
         )
+        Logger.debug("Posted parent message: ts=\(parentTs)")
 
-        // 各質問に対して回答を収集
-        for questionIndex in 0..<questions.count {
-            let question = questions[questionIndex]
+        // 2. 各質問をスレッドに投稿（全質問を一度に投稿）
+        var questionMessageTs: [Int: String] = [:]
+        for (index, question) in questions.enumerated() {
+            let questionBlocks = MessageBuilder.buildAskUserQuestionQuestionBlocks(
+                question: question,
+                questionIndex: index,
+                requestId: requestId
+            )
+            let questionFallbackText = MessageBuilder.buildAskUserQuestionQuestionFallbackText(
+                question: question,
+                questionIndex: index
+            )
 
-            // 現在の質問の選択肢に対応するactionIdを生成
-            var expectedActions: Set<String> = []
+            let ts = try await slackClient.postMessage(
+                channel: config.slackChannelId,
+                blocks: questionBlocks,
+                text: questionFallbackText,
+                threadTs: parentTs
+            )
+            questionMessageTs[index] = ts
+            Logger.debug("Posted question \(index) in thread: ts=\(ts)")
+        }
+
+        // 3. 全質問に対応するactionIdを収集
+        var allExpectedActions: Set<String> = []
+        for (questionIndex, question) in questions.enumerated() {
             for optionIndex in 0..<question.options.count {
                 let actionId = MessageBuilder.questionOptionActionId(
                     questionIndex: questionIndex,
                     optionIndex: optionIndex
                 )
-                expectedActions.insert(actionId)
+                allExpectedActions.insert(actionId)
+            }
+        }
+
+        // 4. すべての質問に回答が揃うまでボタン押下を待機
+        while answers.count < questions.count {
+            Logger.debug("Waiting for answers (\(answers.count)/\(questions.count) completed)")
+
+            // 未回答の質問に対応するactionIdだけを待機
+            var pendingActions: Set<String> = []
+            for (questionIndex, question) in questions.enumerated() {
+                guard answers[questionIndex] == nil else { continue }
+                for optionIndex in 0..<question.options.count {
+                    let actionId = MessageBuilder.questionOptionActionId(
+                        questionIndex: questionIndex,
+                        optionIndex: optionIndex
+                    )
+                    pendingActions.insert(actionId)
+                }
             }
 
-            Logger.debug("Waiting for answer to question \(questionIndex): expecting actions \(expectedActions)")
-
-            // ボタン押下を待機
+            // ボタン押下を待機（どの質問のボタンでも受け付ける）
             let (action, userId, _) = try await socketConnection.waitForBlockAction(
-                expectedActionIds: expectedActions,
-                expectedMessageTs: messageTs
+                expectedActionIds: pendingActions,
+                expectedMessageTs: nil  // スレッド内のどのメッセージでもOK
             )
 
             lastUserId = userId
 
-            // 回答を記録（valueにはlabelが入っている）
+            // どの質問に対する回答かを特定
+            guard let (questionIndex, _) = MessageBuilder.parseQuestionOptionActionId(action.actionId) else {
+                Logger.warning("Could not parse actionId: \(action.actionId)")
+                continue
+            }
+
+            // 回答を記録
             let selectedLabel = action.value ?? "unknown"
             answers[questionIndex] = selectedLabel
             Logger.info("Question \(questionIndex) answered: \(selectedLabel) by user: \(userId)")
 
-            // メッセージを更新して次の質問のボタンを表示
-            let nextQuestionIndex = questionIndex + 1
-            if nextQuestionIndex < questions.count {
-                let updatedBlocks = MessageBuilder.buildAskUserQuestionBlocks(
-                    request: request,
-                    questions: questions,
-                    currentQuestionIndex: nextQuestionIndex,
-                    answers: answers
+            // 該当質問のメッセージを更新（ボタン削除、回答表示）
+            if let questionTs = questionMessageTs[questionIndex] {
+                let updatedBlocks = MessageBuilder.buildAskUserQuestionQuestionBlocks(
+                    question: questions[questionIndex],
+                    questionIndex: questionIndex,
+                    requestId: requestId,
+                    answer: selectedLabel
+                )
+                let questionFallbackText = MessageBuilder.buildAskUserQuestionQuestionFallbackText(
+                    question: questions[questionIndex],
+                    questionIndex: questionIndex
                 )
 
                 try await slackClient.updateMessage(
                     channel: config.slackChannelId,
-                    ts: messageTs,
+                    ts: questionTs,
                     blocks: updatedBlocks,
-                    text: fallbackText
+                    text: questionFallbackText
                 )
+                Logger.debug("Updated question \(questionIndex) message with answer")
             }
         }
 
-        // 全回答完了 - 結果メッセージを表示
-        let resultBlocks = MessageBuilder.buildAskUserQuestionResultBlocks(
-            request: request,
-            questions: questions,
-            answers: answers,
+        // 5. 全回答完了 - 親メッセージを更新
+        let completedHeaderBlocks = MessageBuilder.buildAskUserQuestionHeaderCompletedBlocks(
+            questionCount: questions.count,
             userId: lastUserId
         )
 
         try await slackClient.updateMessage(
             channel: config.slackChannelId,
-            ts: messageTs,
-            blocks: resultBlocks,
+            ts: parentTs,
+            blocks: completedHeaderBlocks,
             text: "AskUserQuestion: Answered"
         )
 

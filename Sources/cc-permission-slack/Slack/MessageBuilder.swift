@@ -166,117 +166,84 @@ enum MessageBuilder {
         return (qIndex, oIndex)
     }
 
-    /// AskUserQuestionメッセージを構築
+    // MARK: - スレッド形式 AskUserQuestion
+
+    /// AskUserQuestionの親メッセージ（ヘッダー）を構築
+    static func buildAskUserQuestionHeaderBlocks(questionCount: Int) -> [Block] {
+        [
+            .section(SectionBlock(
+                text: .mrkdwn("*:question: AskUserQuestion*\n\nClaude Code is asking you \(questionCount) question(s). Please answer in the thread below.")
+            ))
+        ]
+    }
+
+    /// AskUserQuestionの個別質問メッセージを構築（スレッド内に投稿用）
     /// - Parameters:
-    ///   - request: PermissionRequest
-    ///   - questions: 抽出された質問リスト
-    ///   - currentQuestionIndex: 現在回答中の質問インデックス
-    ///   - answers: これまでの回答（質問インデックス → 選択したラベル）
-    static func buildAskUserQuestionBlocks(
-        request: PermissionRequest,
-        questions: [AskUserQuestionQuestion],
-        currentQuestionIndex: Int,
-        answers: [Int: String]
+    ///   - question: 質問
+    ///   - questionIndex: 質問のインデックス
+    ///   - requestId: リクエストID（ボタンのblockIdに使用）
+    ///   - answer: 回答済みの場合はその回答
+    static func buildAskUserQuestionQuestionBlocks(
+        question: AskUserQuestionQuestion,
+        questionIndex: Int,
+        requestId: String,
+        answer: String? = nil
     ) -> [Block] {
         var blocks: [Block] = []
+        let questionNumber = questionIndex + 1
 
-        // ヘッダー
-        blocks.append(.section(SectionBlock(
-            text: .mrkdwn("*:question: AskUserQuestion*\n\nClaude Code is asking you a question.")
-        )))
+        if let answer = answer {
+            // 回答済み
+            blocks.append(.section(SectionBlock(
+                text: .mrkdwn("*Q\(questionNumber). \(question.header)*\n\(question.question)\n\n:white_check_mark: *\(answer)*")
+            )))
+        } else {
+            // 未回答（ボタン表示）
+            blocks.append(.section(SectionBlock(
+                text: .mrkdwn("*Q\(questionNumber). \(question.header)*\n\(question.question)")
+            )))
 
-        blocks.append(.divider(DividerBlock()))
-
-        // 各質問を表示
-        for (index, question) in questions.enumerated() {
-            let questionNumber = index + 1
-
-            if let answer = answers[index] {
-                // 回答済み
-                blocks.append(.section(SectionBlock(
-                    text: .mrkdwn("*Q\(questionNumber). \(question.header)*\n\(question.question)\n:white_check_mark: 回答: *\(answer)*")
-                )))
-            } else if index == currentQuestionIndex {
-                // 現在回答中
-                blocks.append(.section(SectionBlock(
-                    text: .mrkdwn("*Q\(questionNumber). \(question.header)* :point_left:\n\(question.question)")
-                )))
-
-                // 選択肢ボタン
-                let requestId = request.sessionId ?? UUID().uuidString
-                var elements: [ButtonElement] = []
-                for (optionIndex, option) in question.options.enumerated() {
-                    let actionId = questionOptionActionId(questionIndex: index, optionIndex: optionIndex)
-                    // valueにはlabelを入れる
-                    elements.append(ButtonElement(
-                        text: option.label,
-                        actionId: actionId,
-                        value: option.label
-                    ))
-                }
-
-                blocks.append(.actions(ActionsBlock(
-                    blockId: "question_actions_\(requestId)_\(index)",
-                    elements: elements
-                )))
-            } else {
-                // 未回答（まだ順番が来ていない）
-                blocks.append(.section(SectionBlock(
-                    text: .mrkdwn("*Q\(questionNumber). \(question.header)*\n\(question.question)\n_（未回答）_")
-                )))
+            // 選択肢ボタン
+            var elements: [ButtonElement] = []
+            for (optionIndex, option) in question.options.enumerated() {
+                let actionId = questionOptionActionId(questionIndex: questionIndex, optionIndex: optionIndex)
+                elements.append(ButtonElement(
+                    text: option.label,
+                    actionId: actionId,
+                    value: option.label
+                ))
             }
 
-            // 質問間の区切り
-            if index < questions.count - 1 {
-                blocks.append(.divider(DividerBlock()))
-            }
+            blocks.append(.actions(ActionsBlock(
+                blockId: "question_actions_\(requestId)_\(questionIndex)",
+                elements: elements
+            )))
         }
 
         return blocks
     }
 
-    /// AskUserQuestion回答完了メッセージを構築
-    static func buildAskUserQuestionResultBlocks(
-        request: PermissionRequest,
-        questions: [AskUserQuestionQuestion],
-        answers: [Int: String],
-        userId: String
-    ) -> [Block] {
-        var blocks: [Block] = []
-
-        // ヘッダー（完了）
-        blocks.append(.section(SectionBlock(
-            text: .mrkdwn("*:question: AskUserQuestion* - :white_check_mark: *Answered*")
-        )))
-
-        blocks.append(.divider(DividerBlock()))
-
-        // 各質問と回答を表示
-        for (index, question) in questions.enumerated() {
-            let questionNumber = index + 1
-            let answer = answers[index] ?? "（回答なし）"
-
-            blocks.append(.section(SectionBlock(
-                text: .mrkdwn("*Q\(questionNumber). \(question.header)*\n\(question.question)\n:white_check_mark: 回答: *\(answer)*")
-            )))
-
-            if index < questions.count - 1 {
-                blocks.append(.divider(DividerBlock()))
-            }
-        }
-
-        // 処理者情報
-        blocks.append(.context(ContextBlock(
-            elements: [
-                .mrkdwn("Answered by <@\(userId)>")
-            ]
-        )))
-
-        return blocks
+    /// AskUserQuestion完了時の親メッセージを構築
+    static func buildAskUserQuestionHeaderCompletedBlocks(questionCount: Int, userId: String) -> [Block] {
+        [
+            .section(SectionBlock(
+                text: .mrkdwn("*:question: AskUserQuestion* - :white_check_mark: *Answered*\n\nAll \(questionCount) question(s) answered.")
+            )),
+            .context(ContextBlock(
+                elements: [
+                    .mrkdwn("Answered by <@\(userId)>")
+                ]
+            ))
+        ]
     }
 
     /// AskUserQuestionのフォールバックテキストを生成
     static func buildAskUserQuestionFallbackText(questions: [AskUserQuestionQuestion]) -> String {
         "AskUserQuestion: \(questions.count) question(s)"
+    }
+
+    /// 個別質問のフォールバックテキストを生成
+    static func buildAskUserQuestionQuestionFallbackText(question: AskUserQuestionQuestion, questionIndex: Int) -> String {
+        "Q\(questionIndex + 1). \(question.header)"
     }
 }

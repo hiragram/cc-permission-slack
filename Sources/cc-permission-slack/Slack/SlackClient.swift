@@ -11,18 +11,28 @@ actor SlackClient {
     }
 
     /// メッセージを投稿
-    func postMessage(channel: String, blocks: [Block], text: String) async throws -> String {
+    /// - Parameters:
+    ///   - channel: チャンネルID
+    ///   - blocks: Block Kit ブロック
+    ///   - text: フォールバックテキスト
+    ///   - threadTs: スレッドの親メッセージのts（スレッドに投稿する場合）
+    /// - Returns: 投稿されたメッセージのts
+    func postMessage(channel: String, blocks: [Block], text: String, threadTs: String? = nil) async throws -> String {
         let url = URL(string: "https://slack.com/api/chat.postMessage")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Bearer \(botToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
 
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "channel": channel,
             "text": text,
             "blocks": try blocksToJSON(blocks)
         ]
+
+        if let threadTs = threadTs {
+            body["thread_ts"] = threadTs
+        }
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 

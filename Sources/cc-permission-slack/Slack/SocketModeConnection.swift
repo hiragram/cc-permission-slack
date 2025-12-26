@@ -107,7 +107,10 @@ actor SocketModeConnection {
 
     /// block_actions イベントを待機
     /// 指定した actionId かつ送信したメッセージのts に一致するものを待機
-    func waitForBlockAction(expectedActionIds: Set<String>, expectedMessageTs: String) async throws -> (action: SlackAction, userId: String, envelopeId: String) {
+    /// - Parameters:
+    ///   - expectedActionIds: 期待するactionIdのセット
+    ///   - expectedMessageTs: 期待するメッセージts（nilの場合はtsチェックをスキップ）
+    func waitForBlockAction(expectedActionIds: Set<String>, expectedMessageTs: String? = nil) async throws -> (action: SlackAction, userId: String, envelopeId: String) {
         guard let task = webSocketTask else {
             throw CCPermissionError.webSocketDisconnected
         }
@@ -146,11 +149,11 @@ actor SocketModeConnection {
                let actions = payload.actions {
 
                 let messageTs = payload.message?.ts
-                Logger.debug("Checking action: actionId=\(actions.first?.actionId ?? "nil"), messageTs=\(messageTs ?? "nil"), expected=\(expectedMessageTs)")
+                Logger.debug("Checking action: actionId=\(actions.first?.actionId ?? "nil"), messageTs=\(messageTs ?? "nil"), expected=\(expectedMessageTs ?? "any")")
 
-                // メッセージtsが一致するか確認（自分が送ったメッセージかどうか）
-                guard messageTs == expectedMessageTs else {
-                    Logger.debug("Ignoring action for different message: ts=\(messageTs ?? "nil") (expected: \(expectedMessageTs))")
+                // メッセージtsが一致するか確認（expectedMessageTsがnilの場合はスキップ）
+                if let expectedTs = expectedMessageTs, messageTs != expectedTs {
+                    Logger.debug("Ignoring action for different message: ts=\(messageTs ?? "nil") (expected: \(expectedTs))")
                     continue
                 }
 
@@ -164,7 +167,7 @@ actor SocketModeConnection {
                         }
                         // 自分のものだけacknowledge
                         try await acknowledge(envelopeId: envelopeId)
-                        Logger.info("Received action: \(action.actionId) from user: \(userId) for message: \(expectedMessageTs)")
+                        Logger.info("Received action: \(action.actionId) from user: \(userId) for message: \(messageTs ?? "unknown")")
                         return (action, userId, envelopeId)
                     }
                 }
