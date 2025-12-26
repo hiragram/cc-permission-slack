@@ -18,18 +18,29 @@ struct HookSpecificOutput: Codable, Sendable {
 struct Decision: Codable, Sendable {
     let behavior: Behavior
     let message: String?
+    let updatedInput: JSONValue?
 
     enum Behavior: String, Codable, Sendable {
         case allow
         case deny
     }
 
+    enum CodingKeys: String, CodingKey {
+        case behavior
+        case message
+        case updatedInput
+    }
+
     static func allow() -> Decision {
-        Decision(behavior: .allow, message: nil)
+        Decision(behavior: .allow, message: nil, updatedInput: nil)
     }
 
     static func deny(message: String? = nil) -> Decision {
-        Decision(behavior: .deny, message: message)
+        Decision(behavior: .deny, message: message, updatedInput: nil)
+    }
+
+    static func allowWithUpdatedInput(_ input: JSONValue) -> Decision {
+        Decision(behavior: .allow, message: nil, updatedInput: input)
     }
 }
 
@@ -40,6 +51,10 @@ extension PermissionResponse {
 
     static func deny(message: String? = nil) -> PermissionResponse {
         PermissionResponse(hookSpecificOutput: HookSpecificOutput(decision: .deny(message: message)))
+    }
+
+    static func allowWithUpdatedInput(_ input: JSONValue) -> PermissionResponse {
+        PermissionResponse(hookSpecificOutput: HookSpecificOutput(decision: .allowWithUpdatedInput(input)))
     }
 
     func toJSON() throws -> String {

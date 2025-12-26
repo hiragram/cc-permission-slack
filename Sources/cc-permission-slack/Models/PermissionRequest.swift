@@ -9,7 +9,8 @@ struct PermissionRequest: Codable, Sendable {
     let hookEventName: String?
     let toolName: String
     let toolInput: JSONValue
-    let toolUseId: String
+    let toolUseId: String?  // 実際のhookでは含まれない場合がある
+    let permissionSuggestions: [PermissionSuggestion]?
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -20,6 +21,83 @@ struct PermissionRequest: Codable, Sendable {
         case toolName = "tool_name"
         case toolInput = "tool_input"
         case toolUseId = "tool_use_id"
+        case permissionSuggestions = "permission_suggestions"
+    }
+}
+
+struct PermissionSuggestion: Codable, Sendable {
+    let type: String
+    let directories: [String]?
+    let mode: String?
+    let destination: String?
+}
+
+// MARK: - AskUserQuestion サポート
+
+/// AskUserQuestionの質問構造
+struct AskUserQuestionQuestion: Sendable {
+    let question: String
+    let header: String
+    let options: [AskUserQuestionOption]
+    let multiSelect: Bool
+}
+
+/// AskUserQuestionの選択肢構造
+struct AskUserQuestionOption: Sendable {
+    let label: String
+    let description: String
+}
+
+extension PermissionRequest {
+    /// AskUserQuestionツールかどうか
+    var isAskUserQuestion: Bool {
+        toolName == "AskUserQuestion"
+    }
+
+    /// AskUserQuestionのquestionsを抽出
+    func extractQuestions() -> [AskUserQuestionQuestion]? {
+        guard isAskUserQuestion else { return nil }
+        guard case .object(let toolInputObj) = toolInput,
+              case .array(let questionsArray) = toolInputObj["questions"] else {
+            return nil
+        }
+
+        var result: [AskUserQuestionQuestion] = []
+
+        for questionValue in questionsArray {
+            guard case .object(let questionObj) = questionValue,
+                  case .string(let question) = questionObj["question"],
+                  case .string(let header) = questionObj["header"],
+                  case .array(let optionsArray) = questionObj["options"] else {
+                continue
+            }
+
+            let multiSelect: Bool
+            if case .bool(let ms) = questionObj["multiSelect"] {
+                multiSelect = ms
+            } else {
+                multiSelect = false
+            }
+
+            var options: [AskUserQuestionOption] = []
+            for optionValue in optionsArray {
+                guard case .object(let optionObj) = optionValue,
+                      case .string(let label) = optionObj["label"],
+                      case .string(let description) = optionObj["description"] else {
+                    continue
+                }
+                options.append(AskUserQuestionOption(label: label, description: description))
+            }
+
+            result.append(AskUserQuestionQuestion(
+                question: question,
+                header: header,
+                options: options,
+                multiSelect: multiSelect
+            ))
+        }
+
+        return result.isEmpty ? nil : result
     }
 }
 
