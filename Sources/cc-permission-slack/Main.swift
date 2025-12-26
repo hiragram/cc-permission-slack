@@ -169,7 +169,8 @@ struct CCPermissionSlack {
                 channel: config.slackChannelId,
                 blocks: questionBlocks,
                 text: questionFallbackText,
-                threadTs: parentTs
+                threadTs: parentTs,
+                replyBroadcast: true
             )
             questionMessageTs[index] = ts
             Logger.debug("Posted question \(index) in thread: ts=\(ts)")

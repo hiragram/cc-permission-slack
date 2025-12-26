@@ -16,8 +16,9 @@ actor SlackClient {
     ///   - blocks: Block Kit ブロック
     ///   - text: フォールバックテキスト
     ///   - threadTs: スレッドの親メッセージのts（スレッドに投稿する場合）
+    ///   - replyBroadcast: trueの場合、スレッド返信をチャンネルにも表示（"Also send to #channel"）
     /// - Returns: 投稿されたメッセージのts
-    func postMessage(channel: String, blocks: [Block], text: String, threadTs: String? = nil) async throws -> String {
+    func postMessage(channel: String, blocks: [Block], text: String, threadTs: String? = nil, replyBroadcast: Bool = false) async throws -> String {
         let url = URL(string: "https://slack.com/api/chat.postMessage")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -32,6 +33,9 @@ actor SlackClient {
 
         if let threadTs = threadTs {
             body["thread_ts"] = threadTs
+            if replyBroadcast {
+                body["reply_broadcast"] = true
+            }
         }
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
