@@ -13,7 +13,7 @@ A CLI tool that integrates with Claude Code's PermissionRequest hook to enable t
 ## Requirements
 
 - macOS 12+
-- [swx](https://github.com/aspect-build/swx) (Swift package runner, like npx for Swift)
+- [swx](https://github.com/hiragram/swx) (Swift package runner, like npx for Swift)
 - Slack App (Socket Mode enabled)
 
 ## Slack App Setup
