@@ -448,8 +448,7 @@ struct CCPermissionSlack {
                 channel: config.slackChannelId,
                 blocks: questionBlocks,
                 text: questionFallbackText,
-                threadTs: parentTs,
-                replyBroadcast: true
+                threadTs: parentTs
             )
             Logger.debug("Posted question \(questionIndex) in thread: ts=\(questionTs)")
 
