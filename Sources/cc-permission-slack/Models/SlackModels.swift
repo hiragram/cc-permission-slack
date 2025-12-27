@@ -71,10 +71,12 @@ struct SlackEvent: Codable, Sendable {
     let text: String?
     let ts: String?
     let threadTs: String?  // スレッドの親メッセージのts
+    let botId: String?  // ボットからのメッセージの場合に設定される
 
     enum CodingKeys: String, CodingKey {
         case type, channel, user, text, ts
         case threadTs = "thread_ts"
+        case botId = "bot_id"
     }
 }
 

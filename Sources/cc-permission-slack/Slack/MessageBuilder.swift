@@ -228,12 +228,14 @@ enum MessageBuilder {
     /// - Parameters:
     ///   - question: 質問
     ///   - questionIndex: 質問のインデックス
+    ///   - totalQuestions: 質問の総数
     ///   - requestId: リクエストID（ボタンのblockIdに使用）
     ///   - answer: 回答済みの場合はその回答（単一選択の場合）
     ///   - selectedIndices: multiSelectで現在選択中のオプションインデックス
     static func buildAskUserQuestionQuestionBlocks(
         question: AskUserQuestionQuestion,
         questionIndex: Int,
+        totalQuestions: Int = 1,
         requestId: String,
         answer: String? = nil,
         selectedIndices: Set<Int>? = nil
@@ -244,12 +246,12 @@ enum MessageBuilder {
         if let answer = answer {
             // 回答済み
             blocks.append(.section(SectionBlock(
-                text: .mrkdwn("*Q\(questionNumber). \(question.header)*\n\(question.question)\n\n:white_check_mark: *\(answer)*")
+                text: .mrkdwn("*Q\(questionNumber)/\(totalQuestions). \(question.header)*\n\(question.question)\n\n:white_check_mark: *\(answer)*")
             )))
         } else if question.multiSelect {
             // multiSelect: 選択中の状態を表示
             let selected = selectedIndices ?? []
-            var questionText = "*Q\(questionNumber). \(question.header)* _(複数選択可)_\n\(question.question)"
+            var questionText = "*Q\(questionNumber)/\(totalQuestions). \(question.header)* _(複数選択可)_\n\(question.question)"
 
             // 選択中のオプションを表示
             if !selected.isEmpty {
@@ -290,10 +292,17 @@ enum MessageBuilder {
                     .primary(text: "確定", actionId: submitActionId, value: "submit")
                 ]
             )))
+
+            // スレッド返信も可能であることを示す
+            blocks.append(.context(ContextBlock(
+                elements: [
+                    .mrkdwn("ボタンで選択、またはスレッドに返信で自由記述")
+                ]
+            )))
         } else {
             // 単一選択（ボタン表示）
             blocks.append(.section(SectionBlock(
-                text: .mrkdwn("*Q\(questionNumber). \(question.header)*\n\(question.question)")
+                text: .mrkdwn("*Q\(questionNumber)/\(totalQuestions). \(question.header)*\n\(question.question)")
             )))
 
             // 選択肢ボタン
@@ -310,6 +319,13 @@ enum MessageBuilder {
             blocks.append(.actions(ActionsBlock(
                 blockId: "question_actions_\(requestId)_\(questionIndex)",
                 elements: elements
+            )))
+
+            // スレッド返信も可能であることを示す
+            blocks.append(.context(ContextBlock(
+                elements: [
+                    .mrkdwn("ボタンで選択、またはスレッドに返信で自由記述")
+                ]
             )))
         }
 
@@ -336,8 +352,8 @@ enum MessageBuilder {
     }
 
     /// 個別質問のフォールバックテキストを生成
-    static func buildAskUserQuestionQuestionFallbackText(question: AskUserQuestionQuestion, questionIndex: Int) -> String {
-        "Q\(questionIndex + 1). \(question.header)"
+    static func buildAskUserQuestionQuestionFallbackText(question: AskUserQuestionQuestion, questionIndex: Int, totalQuestions: Int = 1) -> String {
+        "Q\(questionIndex + 1)/\(totalQuestions). \(question.header)"
     }
 
     /// AskUserQuestionタイムアウト時の親メッセージを構築
@@ -352,12 +368,13 @@ enum MessageBuilder {
     /// AskUserQuestionタイムアウト時の個別質問メッセージを構築
     static func buildAskUserQuestionQuestionTimeoutBlocks(
         question: AskUserQuestionQuestion,
-        questionIndex: Int
+        questionIndex: Int,
+        totalQuestions: Int = 1
     ) -> [Block] {
         let questionNumber = questionIndex + 1
         return [
             .section(SectionBlock(
-                text: .mrkdwn("*Q\(questionNumber). \(question.header)*\n\(question.question)\n\n:hourglass: _Timed out_")
+                text: .mrkdwn("*Q\(questionNumber)/\(totalQuestions). \(question.header)*\n\(question.question)\n\n:hourglass: _Timed out_")
             ))
         ]
     }

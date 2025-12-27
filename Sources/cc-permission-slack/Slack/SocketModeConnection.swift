@@ -160,6 +160,10 @@ actor SocketModeConnection {
                 // メッセージtsが一致するか確認（expectedMessageTsがnilの場合はスキップ）
                 if let expectedTs = expectedMessageTs, messageTs != expectedTs {
                     Logger.debug("Ignoring action for different message: ts=\(messageTs ?? "nil") (expected: \(expectedTs))")
+                    // 自分のリクエストでなくてもacknowledgeは返す（Slackのタイムアウトを防ぐ）
+                    if let envelopeId = envelope.envelopeId {
+                        try await acknowledge(envelopeId: envelopeId)
+                    }
                     continue
                 }
 
@@ -171,7 +175,6 @@ actor SocketModeConnection {
                             Logger.error("Missing envelope_id in block_actions")
                             continue
                         }
-                        // 自分のものだけacknowledge
                         try await acknowledge(envelopeId: envelopeId)
                         Logger.info("Received action: \(action.actionId) from user: \(userId) for message: \(messageTs ?? "unknown")")
                         return (action, userId, envelopeId)
@@ -184,11 +187,16 @@ actor SocketModeConnection {
     /// block_actions イベントまたはスレッド返信を待機
     /// - Parameters:
     ///   - expectedActionIds: 期待するactionIdのセット
-    ///   - expectedMessageTs: 期待するメッセージts（スレッドの親メッセージ）
+    ///   - expectedMessageTs: ボタンアクション用の期待するメッセージts
+    ///   - expectedThreadTs: スレッド返信用の期待するスレッドts（省略時はexpectedMessageTsを使用）
+    ///   - replyAfterTs: この時刻より後のスレッド返信のみ受け付ける（省略時はチェックなし）
     func waitForBlockActionOrThreadReply(
         expectedActionIds: Set<String>,
-        expectedMessageTs: String
+        expectedMessageTs: String,
+        expectedThreadTs: String? = nil,
+        replyAfterTs: String? = nil
     ) async throws -> InteractionResult {
+        let threadTs = expectedThreadTs ?? expectedMessageTs
         guard let task = webSocketTask else {
             throw CCPermissionError.webSocketDisconnected
         }
@@ -232,6 +240,10 @@ actor SocketModeConnection {
                 // メッセージtsが一致するか確認
                 if messageTs != expectedMessageTs {
                     Logger.debug("Ignoring action for different message: ts=\(messageTs ?? "nil") (expected: \(expectedMessageTs))")
+                    // 自分のリクエストでなくてもacknowledgeは返す（Slackのタイムアウトを防ぐ）
+                    if let envelopeId = envelope.envelopeId {
+                        try await acknowledge(envelopeId: envelopeId)
+                    }
                     continue
                 }
 
@@ -255,7 +267,28 @@ actor SocketModeConnection {
                payload.type == "event_callback",
                let event = payload.event,
                event.type == "message",
-               event.threadTs == expectedMessageTs {
+               event.threadTs == threadTs {
+
+                // ボットからのメッセージは無視（自分自身の質問投稿などを除外）
+                if event.botId != nil {
+                    Logger.debug("Ignoring bot message in thread")
+                    // acknowledgeは送るが、返信としては扱わない
+                    if let envelopeId = envelope.envelopeId {
+                        try await acknowledge(envelopeId: envelopeId)
+                    }
+                    continue
+                }
+
+                // replyAfterTsより前の返信は無視（前の質問への回答を除外）
+                if let afterTs = replyAfterTs, let eventTs = event.ts {
+                    if eventTs <= afterTs {
+                        Logger.debug("Ignoring old thread reply: ts=\(eventTs) <= afterTs=\(afterTs)")
+                        if let envelopeId = envelope.envelopeId {
+                            try await acknowledge(envelopeId: envelopeId)
+                        }
+                        continue
+                    }
+                }
 
                 let text = event.text ?? ""
                 let userId = event.user ?? "unknown"
