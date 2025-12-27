@@ -235,7 +235,7 @@ struct CCPermissionSlack {
             text: fallbackText
         )
 
-        // ボタン押下を待機
+        // ボタン押下またはスレッド返信を待機
         let expectedActions: Set<String> = [
             MessageBuilder.approvePlanActionId,
             MessageBuilder.requestRevisionActionId
@@ -247,42 +247,67 @@ struct CCPermissionSlack {
                 await socketConnection.disconnect()
             }
         ) {
-            try await socketConnection.waitForBlockAction(
+            try await socketConnection.waitForBlockActionOrThreadReply(
                 expectedActionIds: expectedActions,
                 expectedMessageTs: messageTs
             )
         }
 
         switch result {
-        case .success(let (action, userId, _)):
-            let approved = action.actionId == MessageBuilder.approvePlanActionId
+        case .success(let interaction):
+            switch interaction {
+            case .buttonAction(let action, let userId, _):
+                let approved = action.actionId == MessageBuilder.approvePlanActionId
 
-            // メッセージを更新
-            let resultBlocks = MessageBuilder.buildExitPlanModeResultBlocks(
-                approved: approved,
-                userId: userId
-            )
-            let resultText = MessageBuilder.buildExitPlanModeResultFallbackText(approved: approved)
+                // メッセージを更新
+                let resultBlocks = MessageBuilder.buildExitPlanModeResultBlocks(
+                    planContent: planContent,
+                    approved: approved,
+                    userId: userId
+                )
+                let resultText = MessageBuilder.buildExitPlanModeResultFallbackText(approved: approved)
 
-            try await slackClient.updateMessage(
-                channel: config.slackChannelId,
-                ts: messageTs,
-                blocks: resultBlocks,
-                text: resultText
-            )
+                try await slackClient.updateMessage(
+                    channel: config.slackChannelId,
+                    ts: messageTs,
+                    blocks: resultBlocks,
+                    text: resultText
+                )
 
-            if approved {
-                Logger.info("Plan approved by user: \(userId)")
-                return .allow()
-            } else {
-                Logger.info("Revision requested by user: \(userId)")
-                return .deny(message: "User requested revision of the plan via Slack")
+                if approved {
+                    Logger.info("Plan approved by user: \(userId)")
+                    return .allow()
+                } else {
+                    Logger.info("Revision requested by user: \(userId)")
+                    return .deny(message: "User requested revision of the plan via Slack")
+                }
+
+            case .threadReply(let text, let userId, _):
+                // スレッド返信は修正指示として扱う
+                Logger.info("Revision requested via thread reply by user: \(userId)")
+
+                // メッセージを更新
+                let resultBlocks = MessageBuilder.buildExitPlanModeResultBlocks(
+                    planContent: planContent,
+                    approved: false,
+                    userId: userId
+                )
+                let resultText = MessageBuilder.buildExitPlanModeResultFallbackText(approved: false)
+
+                try await slackClient.updateMessage(
+                    channel: config.slackChannelId,
+                    ts: messageTs,
+                    blocks: resultBlocks,
+                    text: resultText
+                )
+
+                return .deny(message: "User requested revision via Slack thread: \(text)")
             }
 
         case .timeout:
             Logger.warning("ExitPlanMode request timed out - updating Slack message")
 
-            let timeoutBlocks = MessageBuilder.buildExitPlanModeTimeoutBlocks()
+            let timeoutBlocks = MessageBuilder.buildExitPlanModeTimeoutBlocks(planContent: planContent)
             let timeoutText = MessageBuilder.buildExitPlanModeTimeoutFallbackText()
 
             try await slackClient.updateMessage(

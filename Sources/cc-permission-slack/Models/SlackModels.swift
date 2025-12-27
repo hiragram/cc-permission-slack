@@ -49,16 +49,32 @@ struct ConnectionInfo: Codable, Sendable {
 }
 
 struct SocketPayload: Codable, Sendable {
-    let type: String?  // "block_actions"
+    let type: String?  // "block_actions", "event_callback"
     let actions: [SlackAction]?
     let user: SlackUser?
     let message: SlackMessage?
     let channel: SlackChannel?
     let responseUrl: String?
+    let event: SlackEvent?  // events_api用
 
     enum CodingKeys: String, CodingKey {
-        case type, actions, user, message, channel
+        case type, actions, user, message, channel, event
         case responseUrl = "response_url"
+    }
+}
+
+/// Slack Events API のイベント
+struct SlackEvent: Codable, Sendable {
+    let type: String  // "message"
+    let channel: String?
+    let user: String?
+    let text: String?
+    let ts: String?
+    let threadTs: String?  // スレッドの親メッセージのts
+
+    enum CodingKeys: String, CodingKey {
+        case type, channel, user, text, ts
+        case threadTs = "thread_ts"
     }
 }
 

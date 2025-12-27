@@ -7,6 +7,7 @@ A CLI tool that integrates with Claude Code's PermissionRequest hook to enable t
 - Posts approval/denial button messages to Slack when Claude Code attempts to execute a tool
 - Approve or deny tool execution by clicking Slack buttons
 - Supports `AskUserQuestion` tool (multiple questions, multi-select options)
+- Supports `ExitPlanMode` tool (plan review with formatted content, thread reply for revision instructions)
 - 30-minute timeout (after timeout, you can still respond in the terminal)
 
 ## Requirements
@@ -33,18 +34,29 @@ Add the following to `OAuth & Permissions > Scopes > Bot Token Scopes`:
 
 - `chat:write` - Post messages
 - `chat:write.public` - Post to public channels without joining (optional)
+- `channels:history` - Read messages in public channels (required for ExitPlanMode thread replies)
+- `groups:history` - Read messages in private channels (required for ExitPlanMode thread replies)
 
-### 4. Enable Interactivity
+### 4. Enable Event Subscriptions
+
+Enable Event Subscriptions in `Features > Event Subscriptions` and add the following bot events under `Subscribe to bot events`:
+
+- `message.channels` - Receive messages in public channels
+- `message.groups` - Receive messages in private channels
+
+These events are required for ExitPlanMode to receive revision instructions via thread replies.
+
+### 5. Enable Interactivity
 
 Enable Interactivity in `Features > Interactivity & Shortcuts`.
 
 No Request URL is required (Socket Mode handles this).
 
-### 5. Install to Workspace
+### 6. Install to Workspace
 
 Install the app from `Install App` and obtain the Bot User OAuth Token (starts with `xoxb-`).
 
-### 6. Invite Bot to Channel
+### 7. Invite Bot to Channel
 
 Invite the bot to the channel where you want to receive notifications:
 
@@ -108,6 +120,15 @@ Displays tool name, file path, command, and other relevant information.
 ### AskUserQuestion
 
 When Claude Code asks questions, each question is posted in a thread format. For multi-select questions, click options to select them, then press the "Confirm" button.
+
+### ExitPlanMode
+
+When Claude Code finishes planning and requests approval:
+
+1. The plan content is displayed with Markdown formatting
+2. Click "プランを承認" (Approve Plan) to start implementation
+3. Click "却下" (Deny) to reject the plan
+4. Or reply in the thread with revision instructions - your message will be sent to Claude as feedback
 
 ## License
 

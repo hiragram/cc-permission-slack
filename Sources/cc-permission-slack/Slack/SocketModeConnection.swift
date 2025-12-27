@@ -1,5 +1,11 @@
 import Foundation
 
+/// ボタン押下またはスレッド返信の結果
+enum InteractionResult: Sendable {
+    case buttonAction(action: SlackAction, userId: String, envelopeId: String)
+    case threadReply(text: String, userId: String, envelopeId: String)
+}
+
 /// Slack Socket Mode 接続管理
 actor SocketModeConnection {
     private let appToken: String
@@ -171,6 +177,97 @@ actor SocketModeConnection {
                         return (action, userId, envelopeId)
                     }
                 }
+            }
+        }
+    }
+
+    /// block_actions イベントまたはスレッド返信を待機
+    /// - Parameters:
+    ///   - expectedActionIds: 期待するactionIdのセット
+    ///   - expectedMessageTs: 期待するメッセージts（スレッドの親メッセージ）
+    func waitForBlockActionOrThreadReply(
+        expectedActionIds: Set<String>,
+        expectedMessageTs: String
+    ) async throws -> InteractionResult {
+        guard let task = webSocketTask else {
+            throw CCPermissionError.webSocketDisconnected
+        }
+
+        Logger.info("Waiting for button click or thread reply...")
+
+        while true {
+            let message = try await task.receive()
+
+            let envelope: SocketModeEnvelope
+
+            switch message {
+            case .string(let text):
+                guard let data = text.data(using: .utf8) else { continue }
+                envelope = try JSONDecoder().decode(SocketModeEnvelope.self, from: data)
+
+            case .data(let data):
+                envelope = try JSONDecoder().decode(SocketModeEnvelope.self, from: data)
+
+            @unknown default:
+                continue
+            }
+
+            Logger.debug("Received envelope type: \(envelope.type)")
+
+            // disconnect イベントの処理
+            if envelope.type == "disconnect" {
+                Logger.warning("Received disconnect event")
+                throw CCPermissionError.webSocketDisconnected
+            }
+
+            // interactive イベント (block_actions) の処理
+            if envelope.type == "interactive",
+               let payload = envelope.payload,
+               payload.type == "block_actions",
+               let actions = payload.actions {
+
+                let messageTs = payload.message?.ts
+                Logger.debug("Checking action: actionId=\(actions.first?.actionId ?? "nil"), messageTs=\(messageTs ?? "nil"), expected=\(expectedMessageTs)")
+
+                // メッセージtsが一致するか確認
+                if messageTs != expectedMessageTs {
+                    Logger.debug("Ignoring action for different message: ts=\(messageTs ?? "nil") (expected: \(expectedMessageTs))")
+                    continue
+                }
+
+                for action in actions {
+                    if expectedActionIds.contains(action.actionId) {
+                        let userId = payload.user?.id ?? "unknown"
+                        guard let envelopeId = envelope.envelopeId else {
+                            Logger.error("Missing envelope_id in block_actions")
+                            continue
+                        }
+                        try await acknowledge(envelopeId: envelopeId)
+                        Logger.info("Received action: \(action.actionId) from user: \(userId)")
+                        return .buttonAction(action: action, userId: userId, envelopeId: envelopeId)
+                    }
+                }
+            }
+
+            // events_api イベント (message) の処理 - スレッド返信
+            if envelope.type == "events_api",
+               let payload = envelope.payload,
+               payload.type == "event_callback",
+               let event = payload.event,
+               event.type == "message",
+               event.threadTs == expectedMessageTs {
+
+                let text = event.text ?? ""
+                let userId = event.user ?? "unknown"
+
+                guard let envelopeId = envelope.envelopeId else {
+                    Logger.error("Missing envelope_id in events_api")
+                    continue
+                }
+
+                try await acknowledge(envelopeId: envelopeId)
+                Logger.info("Received thread reply from user: \(userId): \(text.prefix(100))")
+                return .threadReply(text: text, userId: userId, envelopeId: envelopeId)
             }
         }
     }

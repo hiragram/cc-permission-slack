@@ -393,12 +393,19 @@ enum MessageBuilder {
 
         blocks.append(.divider(DividerBlock()))
 
-        // 承認/修正要求ボタン
+        // 承認/却下ボタン
         blocks.append(.actions(ActionsBlock(
             blockId: "plan_actions_\(requestId)",
             elements: [
                 .primary(text: "プランを承認", actionId: approvePlanActionId, value: requestId),
-                .danger(text: "修正を要求", actionId: requestRevisionActionId, value: requestId)
+                .danger(text: "却下", actionId: requestRevisionActionId, value: requestId)
+            ]
+        )))
+
+        // 補足テキスト
+        blocks.append(.context(ContextBlock(
+            elements: [
+                .mrkdwn("もしくはスレッドに返信で修正指示")
             ]
         )))
 
@@ -406,16 +413,29 @@ enum MessageBuilder {
     }
 
     /// ExitPlanMode結果表示メッセージを構築
-    static func buildExitPlanModeResultBlocks(approved: Bool, userId: String) -> [Block] {
+    static func buildExitPlanModeResultBlocks(planContent: String, approved: Bool, userId: String) -> [Block] {
         var blocks: [Block] = []
 
         let statusEmoji = approved ? ":white_check_mark:" : ":pencil2:"
         let statusText = approved ? "Approved" : "Revision Requested"
 
+        // ヘッダー（結果付き）
         blocks.append(.section(SectionBlock(
             text: .mrkdwn("*:memo: Plan Review* - \(statusEmoji) *\(statusText)*")
         )))
 
+        blocks.append(.divider(DividerBlock()))
+
+        // プラン内容（Markdown→Slack mrkdwn変換、制限に注意して切り詰め）
+        let convertedContent = convertMarkdownToSlackMrkdwn(planContent)
+        let truncatedContent = truncateString(convertedContent, maxLength: 2800)
+        blocks.append(.section(SectionBlock(
+            text: .mrkdwn(truncatedContent)
+        )))
+
+        blocks.append(.divider(DividerBlock()))
+
+        // 処理者情報
         blocks.append(.context(ContextBlock(
             elements: [
                 .mrkdwn("\(statusText) by <@\(userId)>")
@@ -426,17 +446,33 @@ enum MessageBuilder {
     }
 
     /// ExitPlanModeタイムアウト時のメッセージを構築
-    static func buildExitPlanModeTimeoutBlocks() -> [Block] {
-        [
-            .section(SectionBlock(
-                text: .mrkdwn("*:memo: Plan Review* - :hourglass: *Timed Out*")
-            )),
-            .context(ContextBlock(
-                elements: [
-                    .mrkdwn("No response received within the time limit")
-                ]
-            ))
-        ]
+    static func buildExitPlanModeTimeoutBlocks(planContent: String) -> [Block] {
+        var blocks: [Block] = []
+
+        // ヘッダー（タイムアウト）
+        blocks.append(.section(SectionBlock(
+            text: .mrkdwn("*:memo: Plan Review* - :hourglass: *Timed Out*")
+        )))
+
+        blocks.append(.divider(DividerBlock()))
+
+        // プラン内容
+        let convertedContent = convertMarkdownToSlackMrkdwn(planContent)
+        let truncatedContent = truncateString(convertedContent, maxLength: 2800)
+        blocks.append(.section(SectionBlock(
+            text: .mrkdwn(truncatedContent)
+        )))
+
+        blocks.append(.divider(DividerBlock()))
+
+        // タイムアウト情報
+        blocks.append(.context(ContextBlock(
+            elements: [
+                .mrkdwn("No response received within the time limit")
+            ]
+        )))
+
+        return blocks
     }
 
     /// ExitPlanModeのフォールバックテキストを生成
