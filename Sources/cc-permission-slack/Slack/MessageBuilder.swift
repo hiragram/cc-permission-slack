@@ -149,6 +149,38 @@ enum MessageBuilder {
         return "Permission \(status): \(request.toolName)"
     }
 
+    /// タイムアウト時のPermissionメッセージを構築
+    static func buildTimeoutBlocks(request: PermissionRequest) -> [Block] {
+        var blocks: [Block] = []
+
+        // ヘッダー（タイムアウト）
+        blocks.append(.section(SectionBlock(
+            text: .mrkdwn("*Permission Request* - :hourglass: *Timed Out*")
+        )))
+
+        blocks.append(.divider(DividerBlock()))
+
+        // ツール情報
+        let toolInfo = buildToolInfoText(request: request)
+        blocks.append(.section(SectionBlock(
+            text: .mrkdwn(toolInfo)
+        )))
+
+        // タイムアウト情報
+        blocks.append(.context(ContextBlock(
+            elements: [
+                .mrkdwn("No response received within the time limit")
+            ]
+        )))
+
+        return blocks
+    }
+
+    /// タイムアウトのフォールバックテキストを生成
+    static func buildTimeoutFallbackText(request: PermissionRequest) -> String {
+        "Permission Timed Out: \(request.toolName)"
+    }
+
     // MARK: - AskUserQuestion サポート
 
     /// AskUserQuestion用のactionIdを生成
@@ -306,5 +338,27 @@ enum MessageBuilder {
     /// 個別質問のフォールバックテキストを生成
     static func buildAskUserQuestionQuestionFallbackText(question: AskUserQuestionQuestion, questionIndex: Int) -> String {
         "Q\(questionIndex + 1). \(question.header)"
+    }
+
+    /// AskUserQuestionタイムアウト時の親メッセージを構築
+    static func buildAskUserQuestionHeaderTimeoutBlocks(questionCount: Int) -> [Block] {
+        [
+            .section(SectionBlock(
+                text: .mrkdwn("*:question: AskUserQuestion* - :hourglass: *Timed Out*\n\n\(questionCount) question(s) - No response received within the time limit.")
+            ))
+        ]
+    }
+
+    /// AskUserQuestionタイムアウト時の個別質問メッセージを構築
+    static func buildAskUserQuestionQuestionTimeoutBlocks(
+        question: AskUserQuestionQuestion,
+        questionIndex: Int
+    ) -> [Block] {
+        let questionNumber = questionIndex + 1
+        return [
+            .section(SectionBlock(
+                text: .mrkdwn("*Q\(questionNumber). \(question.header)*\n\(question.question)\n\n:hourglass: _Timed out_")
+            ))
+        ]
     }
 }
