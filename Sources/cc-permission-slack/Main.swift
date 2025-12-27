@@ -88,6 +88,13 @@ struct CCPermissionSlack {
                     slackClient: slackClient,
                     socketConnection: socketConnection
                 )
+            } else if request.isExitPlanMode {
+                response = try await handleExitPlanMode(
+                    request: request,
+                    config: config,
+                    slackClient: slackClient,
+                    socketConnection: socketConnection
+                )
             } else {
                 response = try await handlePermissionRequest(
                     request: request,
@@ -197,6 +204,94 @@ struct CCPermissionSlack {
 
             // Slackはタイムアウトしたので、hookプロセスは終了
             // ターミナル側で引き続き回答可能
+            Logger.info("Slack timed out, exiting hook process")
+            exit(0)
+        }
+    }
+
+    // MARK: - ExitPlanMode 処理
+
+    private static func handleExitPlanMode(
+        request: PermissionRequest,
+        config: Configuration,
+        slackClient: SlackClient,
+        socketConnection: SocketModeConnection
+    ) async throws -> PermissionResponse {
+        Logger.info("Handling ExitPlanMode")
+
+        let requestId = request.sessionId ?? UUID().uuidString
+        let planContent = request.extractPlanContent() ?? "(Plan content not available)"
+
+        // Slack にプランレビューメッセージを送信
+        let blocks = MessageBuilder.buildExitPlanModeBlocks(
+            planContent: planContent,
+            requestId: requestId
+        )
+        let fallbackText = MessageBuilder.buildExitPlanModeFallbackText()
+
+        let messageTs = try await slackClient.postMessage(
+            channel: config.slackChannelId,
+            blocks: blocks,
+            text: fallbackText
+        )
+
+        // ボタン押下を待機
+        let expectedActions: Set<String> = [
+            MessageBuilder.approvePlanActionId,
+            MessageBuilder.requestRevisionActionId
+        ]
+
+        let result = try await withTimeoutResult(
+            nanoseconds: timeoutDuration,
+            onTimeout: {
+                await socketConnection.disconnect()
+            }
+        ) {
+            try await socketConnection.waitForBlockAction(
+                expectedActionIds: expectedActions,
+                expectedMessageTs: messageTs
+            )
+        }
+
+        switch result {
+        case .success(let (action, userId, _)):
+            let approved = action.actionId == MessageBuilder.approvePlanActionId
+
+            // メッセージを更新
+            let resultBlocks = MessageBuilder.buildExitPlanModeResultBlocks(
+                approved: approved,
+                userId: userId
+            )
+            let resultText = MessageBuilder.buildExitPlanModeResultFallbackText(approved: approved)
+
+            try await slackClient.updateMessage(
+                channel: config.slackChannelId,
+                ts: messageTs,
+                blocks: resultBlocks,
+                text: resultText
+            )
+
+            if approved {
+                Logger.info("Plan approved by user: \(userId)")
+                return .allow()
+            } else {
+                Logger.info("Revision requested by user: \(userId)")
+                return .deny(message: "User requested revision of the plan via Slack")
+            }
+
+        case .timeout:
+            Logger.warning("ExitPlanMode request timed out - updating Slack message")
+
+            let timeoutBlocks = MessageBuilder.buildExitPlanModeTimeoutBlocks()
+            let timeoutText = MessageBuilder.buildExitPlanModeTimeoutFallbackText()
+
+            try await slackClient.updateMessage(
+                channel: config.slackChannelId,
+                ts: messageTs,
+                blocks: timeoutBlocks,
+                text: timeoutText
+            )
+
             Logger.info("Slack timed out, exiting hook process")
             exit(0)
         }

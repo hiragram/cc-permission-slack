@@ -361,4 +361,144 @@ enum MessageBuilder {
             ))
         ]
     }
+
+    // MARK: - ExitPlanMode サポート
+
+    /// プラン承認ボタンの action_id
+    static let approvePlanActionId = "approve_plan"
+
+    /// 修正要求ボタンの action_id
+    static let requestRevisionActionId = "request_revision"
+
+    /// ExitPlanModeのメッセージを構築
+    /// - Parameters:
+    ///   - planContent: プランファイルの内容
+    ///   - requestId: リクエストID
+    static func buildExitPlanModeBlocks(planContent: String, requestId: String) -> [Block] {
+        var blocks: [Block] = []
+
+        // ヘッダー
+        blocks.append(.section(SectionBlock(
+            text: .mrkdwn("*:memo: Plan Review Request*\n\nClaude Code has finished planning and is requesting approval to start implementation.")
+        )))
+
+        blocks.append(.divider(DividerBlock()))
+
+        // プラン内容（Markdown→Slack mrkdwn変換、制限に注意して切り詰め）
+        let convertedContent = convertMarkdownToSlackMrkdwn(planContent)
+        let truncatedContent = truncateString(convertedContent, maxLength: 2800)
+        blocks.append(.section(SectionBlock(
+            text: .mrkdwn(truncatedContent)
+        )))
+
+        blocks.append(.divider(DividerBlock()))
+
+        // 承認/修正要求ボタン
+        blocks.append(.actions(ActionsBlock(
+            blockId: "plan_actions_\(requestId)",
+            elements: [
+                .primary(text: "プランを承認", actionId: approvePlanActionId, value: requestId),
+                .danger(text: "修正を要求", actionId: requestRevisionActionId, value: requestId)
+            ]
+        )))
+
+        return blocks
+    }
+
+    /// ExitPlanMode結果表示メッセージを構築
+    static func buildExitPlanModeResultBlocks(approved: Bool, userId: String) -> [Block] {
+        var blocks: [Block] = []
+
+        let statusEmoji = approved ? ":white_check_mark:" : ":pencil2:"
+        let statusText = approved ? "Approved" : "Revision Requested"
+
+        blocks.append(.section(SectionBlock(
+            text: .mrkdwn("*:memo: Plan Review* - \(statusEmoji) *\(statusText)*")
+        )))
+
+        blocks.append(.context(ContextBlock(
+            elements: [
+                .mrkdwn("\(statusText) by <@\(userId)>")
+            ]
+        )))
+
+        return blocks
+    }
+
+    /// ExitPlanModeタイムアウト時のメッセージを構築
+    static func buildExitPlanModeTimeoutBlocks() -> [Block] {
+        [
+            .section(SectionBlock(
+                text: .mrkdwn("*:memo: Plan Review* - :hourglass: *Timed Out*")
+            )),
+            .context(ContextBlock(
+                elements: [
+                    .mrkdwn("No response received within the time limit")
+                ]
+            ))
+        ]
+    }
+
+    /// ExitPlanModeのフォールバックテキストを生成
+    static func buildExitPlanModeFallbackText() -> String {
+        "Plan Review Request: Claude Code is requesting plan approval"
+    }
+
+    /// ExitPlanMode結果のフォールバックテキストを生成
+    static func buildExitPlanModeResultFallbackText(approved: Bool) -> String {
+        approved ? "Plan Approved" : "Revision Requested"
+    }
+
+    /// ExitPlanModeタイムアウトのフォールバックテキストを生成
+    static func buildExitPlanModeTimeoutFallbackText() -> String {
+        "Plan Review: Timed Out"
+    }
+
+    /// Markdown を Slack mrkdwn 形式に変換
+    private static func convertMarkdownToSlackMrkdwn(_ markdown: String) -> String {
+        var result = markdown
+
+        // Markdownの太字 **text** → Slackの太字 *text*
+        let boldPattern = #"\*\*(.+?)\*\*"#
+        if let regex = try? NSRegularExpression(pattern: boldPattern, options: []) {
+            result = regex.stringByReplacingMatches(
+                in: result,
+                options: [],
+                range: NSRange(result.startIndex..., in: result),
+                withTemplate: "*$1*"
+            )
+        }
+
+        // 見出し ### → 太字（レベル3）
+        result = result.replacingOccurrences(
+            of: #"(?m)^### (.+)$"#,
+            with: "*$1*",
+            options: .regularExpression
+        )
+
+        // 見出し ## → 太字（レベル2）
+        result = result.replacingOccurrences(
+            of: #"(?m)^## (.+)$"#,
+            with: "*$1*",
+            options: .regularExpression
+        )
+
+        // 見出し # → 太字（レベル1）
+        result = result.replacingOccurrences(
+            of: #"(?m)^# (.+)$"#,
+            with: "*$1*",
+            options: .regularExpression
+        )
+
+        // リスト - item → • item
+        result = result.replacingOccurrences(
+            of: #"(?m)^- "#,
+            with: "• ",
+            options: .regularExpression
+        )
+
+        // コードブロック ```lang\n...\n``` はそのまま保持（Slackでも対応）
+
+        return result
+    }
 }

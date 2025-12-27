@@ -54,6 +54,21 @@ extension PermissionRequest {
         toolName == "AskUserQuestion"
     }
 
+    /// ExitPlanModeツールかどうか
+    var isExitPlanMode: Bool {
+        toolName == "ExitPlanMode"
+    }
+
+    /// ExitPlanModeのplanパラメータを抽出
+    func extractPlanContent() -> String? {
+        guard isExitPlanMode else { return nil }
+        guard case .object(let toolInputObj) = toolInput,
+              case .string(let plan) = toolInputObj["plan"] else {
+            return nil
+        }
+        return plan
+    }
+
     /// AskUserQuestionのquestionsを抽出
     func extractQuestions() -> [AskUserQuestionQuestion]? {
         guard isAskUserQuestion else { return nil }
